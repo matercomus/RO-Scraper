@@ -154,7 +154,7 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1, filename=None):
 
     for date in get_dates(start_date, end_date):
         date_str = date.strftime("%Y%m%d")
-
+        no_articles_counter = 0  # Reset counter for each new date
         for page in range(1, 51):
             logging.info(f"Scraping page {page} for date {date_str}.")
             continue_scraping, no_articles_counter = scrape_page(
@@ -168,15 +168,16 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1, filename=None):
             )
             if not continue_scraping or no_articles_counter >= 3:
                 logging.info(
-                    "Stopping script due to 3 consecutive pages with no articles in date range."
+                    f"Stopping pagination for date {date_str} due to 3 consecutive pages with no articles in date range."
                 )
-                return
+                break  # Break out of the pagination loop, but continue to the next date
 
-            save_to_json(list(all_articles.values()), filename)
-            logging.info(f"Appended articles to {filename}")
+    # Save only new articles to JSON
+    save_to_json(list(all_articles.values()), filename)
+    logging.info(f"Finished scraping and saved articles to {filename}")
 
 
 if __name__ == "__main__":
     start_date = datetime(2018, 3, 1)
-    end_date = datetime(2018, 3, 2)
+    end_date = datetime(2018, 3, 10)
     scrape_and_save_news_articles(start_date, end_date)
