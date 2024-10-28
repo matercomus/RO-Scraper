@@ -1,5 +1,3 @@
-"""Scraper for Rijksoverheid archive."""
-
 import random
 import requests
 import time
@@ -22,7 +20,7 @@ def get_root_url(date):
 
 def get_response(url):
     response = requests.get(url, headers=HEADERS)
-    logging.info(f"Sent request to {url}, received status code {response.status_code}")
+    logging.debug(f"Sent request to {url}, received status code {response.status_code}")
     return response
 
 
@@ -130,7 +128,7 @@ def scrape_page(
                 article["full_content"] = extract_article_content(article_html)
                 all_articles[article["link"]] = article
             else:
-                logging.info(f"Article {article['link']} already scraped.")
+                logging.debug(f"Article {article['link']} already scraped.")
 
     if not articles_in_range:
         no_articles_counter += 1
@@ -140,10 +138,12 @@ def scrape_page(
     return True, no_articles_counter
 
 
-def scrape_and_save_news_articles(start_date, end_date, delay=1):
-    filename = "news_articles_between_{start_date}_and_{end_date}.json".format(
-        start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d")
-    )
+def scrape_and_save_news_articles(start_date, end_date, delay=1, filename=None):
+    if filename is None:
+        filename = "news_articles_between_{start_date}_and_{end_date}.json".format(
+            start_date=start_date.strftime("%Y%m%d"),
+            end_date=end_date.strftime("%Y%m%d"),
+        )
     all_articles = {
         article["link"]: article
         for date_articles in load_existing_articles(filename).values()
@@ -156,6 +156,7 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1):
         date_str = date.strftime("%Y%m%d")
 
         for page in range(1, 51):
+            logging.info(f"Scraping page {page} for date {date_str}.")
             continue_scraping, no_articles_counter = scrape_page(
                 date_str,
                 page,
