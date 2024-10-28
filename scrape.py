@@ -81,23 +81,21 @@ def save_to_json(news_articles, filename):
     try:
         with open(filename, "r") as f:
             existing_articles = json.load(f)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         existing_articles = {}
 
-    segregated_articles = {}
     for article in news_articles:
+        if isinstance(article["publ_date"], str):
+            article["publ_date"] = datetime.strptime(
+                article["publ_date"], "%Y-%m-%d %H:%M:%S"
+            )
         publ_date_str = article["publ_date"].strftime("%Y-%m-%d")
-        if publ_date_str not in segregated_articles:
-            segregated_articles[publ_date_str] = []
-        segregated_articles[publ_date_str].append(article)
-
-    for date, articles in segregated_articles.items():
-        if date not in existing_articles:
-            existing_articles[date] = []
-        existing_articles[date].extend(articles)
+        if publ_date_str not in existing_articles:
+            existing_articles[publ_date_str] = []
+        existing_articles[publ_date_str].append(article)
 
     with open(filename, "w") as f:
-        json.dump(existing_articles, f, default=str)
+        json.dump(existing_articles, f, default=str, indent=4)
 
 
 def get_dates(start_date, end_date):
@@ -109,8 +107,31 @@ def get_dates(start_date, end_date):
 
 
 def scrape_and_save_news_articles(start_date, end_date, delay=1):
-    all_articles = {}
     filename = "news_articles.json"
+
+    # Load existing articles from file
+    try:
+        with open(filename, "r") as f:
+            existing_articles = json.load(f)
+            # Convert publ_date back to datetime object
+            for date, articles in existing_articles.items():
+                for article in articles:
+                    try:
+                        article["publ_date"] = datetime.strptime(
+                            article["publ_date"], "%Y-%m-%d %H:%M:%S"
+                        )
+                    except ValueError:
+                        article["publ_date"] = datetime.strptime(
+                            article["publ_date"], "%Y-%m-%d"
+                        )
+    except (FileNotFoundError, json.JSONDecodeError):
+        existing_articles = {}
+
+    all_articles = {
+        article["link"]: article
+        for date_articles in existing_articles.values()
+        for article in date_articles
+    }
 
     for date in get_dates(start_date, end_date):
         date_str = date.strftime("%Y%m%d")
