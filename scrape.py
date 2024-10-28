@@ -4,45 +4,43 @@ import random
 import requests
 import time
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from datetime import timedelta
 import logging
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0"
 }
 
-
 logging.basicConfig(level=logging.INFO)
 
 
 def get_root_url(date):
     rand_num = random.randint(0, 999999)
-    ROOT_URL = f"https://archief28.sitearchief.nl/archives/sitearchief/{date}{rand_num}/https://www.rijksoverheid.nl"
-    return ROOT_URL
+    return f"https://archief28.sitearchief.nl/archives/sitearchief/{date}{rand_num}/https://www.rijksoverheid.nl"
 
 
 def get_response(url):
     response = requests.get(url, headers=HEADERS)
     logging.info(f"Sent request to {url}, received status code {response.status_code}")
-    # logging.info(f"Response text: {response.text}")
     return response
 
 
 def parse_publ_date(publ_date):
-    try:
-        return datetime.strptime(publ_date, "%d-%m-%Y | %H:%M")
-    except ValueError:
-        return datetime.strptime(publ_date, "%d-%m-%Y")
+    formats = ["%d-%m-%Y | %H:%M", "%d-%m-%Y"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(publ_date, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Date format not recognized: {publ_date}")
 
 
-def extract_news_articles(html, date):
+def extract_news_articles(html):
     """Extract news articles' links, titles, and publication dates."""
     soup = BeautifulSoup(html, "html.parser")
     news_articles = []
 
-    # Find all <a> tags with class "news"
     articles = soup.find_all("a", class_="news")
     for article in articles:
         link = article["href"]
@@ -68,27 +66,30 @@ def get_article_content(url, date):
 def extract_article_content(html):
     """Extract the content of the article."""
     soup = BeautifulSoup(html, "html.parser")
-    content_div = soup.find("div", class_="article content")
-    if content_div is None:
-        content_div = soup.find("div", id="content", class_="article")
-    if content_div:
-        return content_div.text.strip()
-    else:
-        return ""
+    content_div = soup.find("div", class_="article content") or soup.find(
+        "div", id="content", class_="article"
+    )
+    return content_div.text.strip() if content_div else ""
 
 
-def save_to_json(news_articles, filename):
+def load_existing_articles(filename):
     try:
         with open(filename, "r") as f:
             existing_articles = json.load(f)
+            for date, articles in existing_articles.items():
+                for article in articles:
+                    article["publ_date"] = datetime.strptime(
+                        article["publ_date"], "%Y-%m-%d %H:%M:%S"
+                    )
     except (FileNotFoundError, json.JSONDecodeError):
         existing_articles = {}
+    return existing_articles
+
+
+def save_to_json(news_articles, filename):
+    existing_articles = load_existing_articles(filename)
 
     for article in news_articles:
-        if isinstance(article["publ_date"], str):
-            article["publ_date"] = datetime.strptime(
-                article["publ_date"], "%Y-%m-%d %H:%M:%S"
-            )
         publ_date_str = article["publ_date"].strftime("%Y-%m-%d")
         if publ_date_str not in existing_articles:
             existing_articles[publ_date_str] = []
@@ -106,30 +107,34 @@ def get_dates(start_date, end_date):
         current_date += timedelta(days=1)
 
 
+def scrape_page(date_str, page, all_articles, delay):
+    root_url = get_root_url(date_str)
+    actual_url = f"{root_url}/actueel/nieuws?pagina={page}"
+    response = get_response(actual_url)
+    news_articles = extract_news_articles(response.text)
+    time.sleep(delay)
+
+    if not news_articles:
+        logging.info(f"No more articles found on page {page}. Stopping pagination.")
+        return False
+
+    for article in news_articles:
+        if article["link"] not in all_articles:
+            time.sleep(delay)
+            article_html = get_article_content(article["link"], date_str)
+            article["full_content"] = extract_article_content(article_html)
+            all_articles[article["link"]] = article
+        else:
+            logging.info(f"Article {article['link']} already scraped.")
+
+    return True
+
+
 def scrape_and_save_news_articles(start_date, end_date, delay=1):
     filename = "news_articles.json"
-
-    # Load existing articles from file
-    try:
-        with open(filename, "r") as f:
-            existing_articles = json.load(f)
-            # Convert publ_date back to datetime object
-            for date, articles in existing_articles.items():
-                for article in articles:
-                    try:
-                        article["publ_date"] = datetime.strptime(
-                            article["publ_date"], "%Y-%m-%d %H:%M:%S"
-                        )
-                    except ValueError:
-                        article["publ_date"] = datetime.strptime(
-                            article["publ_date"], "%Y-%m-%d"
-                        )
-    except (FileNotFoundError, json.JSONDecodeError):
-        existing_articles = {}
-
     all_articles = {
         article["link"]: article
-        for date_articles in existing_articles.values()
+        for date_articles in load_existing_articles(filename).values()
         for article in date_articles
     }
 
@@ -137,28 +142,9 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1):
         date_str = date.strftime("%Y%m%d")
 
         for page in range(1, 51):
-            root_url = get_root_url(date_str)
-            actuel_url = f"{root_url}/actueel/nieuws?pagina={page}"
-            response = get_response(actuel_url)
-            news_articles = extract_news_articles(response.text, date_str)
-            time.sleep(delay)
-
-            if not news_articles:
-                logging.info(
-                    f"No more articles found on page {page}. Stopping pagination."
-                )
+            if not scrape_page(date_str, page, all_articles, delay):
                 break
 
-            for article in news_articles:
-                if article["link"] not in all_articles:
-                    time.sleep(delay)
-                    article_html = get_article_content(article["link"], date_str)
-                    article["full_content"] = extract_article_content(article_html)
-                    all_articles[article["link"]] = article
-                else:
-                    logging.info(f"Article {article['link']} already scraped.")
-
-            # Save articles after each page
             save_to_json(list(all_articles.values()), filename)
             logging.info(f"Appended articles to {filename}")
 
