@@ -107,7 +107,9 @@ def get_dates(start_date, end_date):
         current_date += timedelta(days=1)
 
 
-def scrape_page(date_str, page, all_articles, delay):
+def scrape_page(
+    date_str, page, all_articles, delay, start_date, end_date, no_articles_counter
+):
     root_url = get_root_url(date_str)
     actual_url = f"{root_url}/actueel/nieuws?pagina={page}"
     response = get_response(actual_url)
@@ -116,34 +118,58 @@ def scrape_page(date_str, page, all_articles, delay):
 
     if not news_articles:
         logging.info(f"No more articles found on page {page}. Stopping pagination.")
-        return False
+        return False, no_articles_counter
 
+    articles_in_range = False
     for article in news_articles:
-        if article["link"] not in all_articles:
-            time.sleep(delay)
-            article_html = get_article_content(article["link"], date_str)
-            article["full_content"] = extract_article_content(article_html)
-            all_articles[article["link"]] = article
-        else:
-            logging.info(f"Article {article['link']} already scraped.")
+        if start_date <= article["publ_date"] <= end_date:
+            articles_in_range = True
+            if article["link"] not in all_articles:
+                time.sleep(delay)
+                article_html = get_article_content(article["link"], date_str)
+                article["full_content"] = extract_article_content(article_html)
+                all_articles[article["link"]] = article
+            else:
+                logging.info(f"Article {article['link']} already scraped.")
 
-    return True
+    if not articles_in_range:
+        no_articles_counter += 1
+    else:
+        no_articles_counter = 0
+
+    return True, no_articles_counter
 
 
 def scrape_and_save_news_articles(start_date, end_date, delay=1):
-    filename = "news_articles.json"
+    filename = "news_articles_between_{start_date}_and_{end_date}.json".format(
+        start_date=start_date.strftime("%Y%m%d"), end_date=end_date.strftime("%Y%m%d")
+    )
     all_articles = {
         article["link"]: article
         for date_articles in load_existing_articles(filename).values()
         for article in date_articles
     }
 
+    no_articles_counter = 0
+
     for date in get_dates(start_date, end_date):
         date_str = date.strftime("%Y%m%d")
 
         for page in range(1, 51):
-            if not scrape_page(date_str, page, all_articles, delay):
-                break
+            continue_scraping, no_articles_counter = scrape_page(
+                date_str,
+                page,
+                all_articles,
+                delay,
+                start_date,
+                end_date,
+                no_articles_counter,
+            )
+            if not continue_scraping or no_articles_counter >= 3:
+                logging.info(
+                    "Stopping script due to 3 consecutive pages with no articles in date range."
+                )
+                return
 
             save_to_json(list(all_articles.values()), filename)
             logging.info(f"Appended articles to {filename}")
@@ -151,5 +177,5 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1):
 
 if __name__ == "__main__":
     start_date = datetime(2018, 3, 1)
-    end_date = datetime(2018, 3, 31)
+    end_date = datetime(2018, 3, 2)
     scrape_and_save_news_articles(start_date, end_date)
