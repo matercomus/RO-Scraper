@@ -74,7 +74,7 @@ def load_existing_articles(filename):
     try:
         with open(filename, "r") as f:
             existing_articles = json.load(f)
-            for date, articles in existing_articles.items():
+            for _, articles in existing_articles.items():
                 for article in articles:
                     article["publ_date"] = datetime.strptime(
                         article["publ_date"], "%Y-%m-%d %H:%M:%S"
@@ -95,6 +95,8 @@ def save_to_json(news_articles, filename):
 
     with open(filename, "w") as f:
         json.dump(existing_articles, f, default=str, indent=4)
+
+    logging.info(f"Saved articles to {filename}.")
 
 
 def get_dates(start_date, end_date):
@@ -128,7 +130,7 @@ def scrape_page(
                 article["full_content"] = extract_article_content(article_html)
                 all_articles[article["link"]] = article
             else:
-                logging.debug(f"Article {article['link']} already scraped.")
+                logging.debug(f"Skipping already scraped article: {article['link']}")
 
     if not articles_in_range:
         no_articles_counter += 1
@@ -138,7 +140,9 @@ def scrape_page(
     return True, no_articles_counter
 
 
-def scrape_and_save_news_articles(start_date, end_date, delay=1, filename=None):
+def scrape_and_save_news_articles(
+    start_date, end_date, delay=1, no_article_skip_threashold=3, filename=None
+):
     if filename is None:
         filename = "news_articles_between_{start_date}_and_{end_date}.json".format(
             start_date=start_date.strftime("%Y%m%d"),
@@ -166,18 +170,21 @@ def scrape_and_save_news_articles(start_date, end_date, delay=1, filename=None):
                 end_date,
                 no_articles_counter,
             )
-            if not continue_scraping or no_articles_counter >= 3:
+            if (
+                not continue_scraping
+                or no_articles_counter >= no_article_skip_threashold
+            ):
                 logging.info(
-                    f"Stopping pagination for date {date_str} due to 3 consecutive pages with no articles in date range."
+                    f"Stopping pagination for date {date_str} due to {no_article_skip_threashold} consecutive pages with no articles in date range."
                 )
                 break  # Break out of the pagination loop, but continue to the next date
 
-    # Save only new articles to JSON
-    save_to_json(list(all_articles.values()), filename)
-    logging.info(f"Finished scraping and saved articles to {filename}")
+        save_to_json(list(all_articles.values()), filename)
+
+    logging.info(f"Finished scraping news articles from {start_date} to {end_date}.")
 
 
 if __name__ == "__main__":
     start_date = datetime(2018, 3, 1)
     end_date = datetime(2018, 3, 10)
-    scrape_and_save_news_articles(start_date, end_date)
+    scrape_and_save_news_articles(start_date, end_date, 0.5, "news_articles.json")
