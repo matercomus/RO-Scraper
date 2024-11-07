@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import logging
+import argparse
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0"
@@ -185,6 +186,36 @@ def scrape_and_save_news_articles(
 
 
 if __name__ == "__main__":
-    start_date = datetime(2018, 3, 1)
-    end_date = datetime(2018, 3, 10)
-    scrape_and_save_news_articles(start_date, end_date, 0.5, "news_articles.json")
+    parser = argparse.ArgumentParser(description="Scrape and save news articles.")
+    parser.add_argument(
+        "start_date",
+        type=lambda d: datetime.strptime(d, "%Y-%m-%d"),
+        help="Start date in YYYY-MM-DD format",
+    )
+    parser.add_argument(
+        "end_date",
+        type=lambda d: datetime.strptime(d, "%Y-%m-%d"),
+        help="End date in YYYY-MM-DD format",
+    )
+    parser.add_argument(
+        "--delay", type=float, default=1, help="Delay between requests in seconds"
+    )
+    parser.add_argument(
+        "--no_article_skip_threashold",
+        type=int,
+        default=3,
+        help="Number of consecutive pages with no articles to skip pagination",
+    )
+    parser.add_argument(
+        "--filename", type=str, default=None, help="Filename to save the articles"
+    )
+
+    args = parser.parse_args()
+
+    scrape_and_save_news_articles(
+        args.start_date,
+        args.end_date,
+        delay=args.delay,
+        no_article_skip_threashold=args.no_article_skip_threashold,
+        filename=args.filename,
+    )
